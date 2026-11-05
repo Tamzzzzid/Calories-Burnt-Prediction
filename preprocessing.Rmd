@@ -1,0 +1,227 @@
+---
+title: "Calories Data Preprocessing"
+output:
+  html_notebook:
+    toc: true
+    toc_depth: 3
+---
+
+## 1. Load Datasets
+
+Python: `pd.read_csv()` → R: `read.csv()`
+
+```{r}
+dfc <- read.csv("calories.csv")
+dfe <- read.csv("exercise.csv")
+
+head(dfc, 5)
+head(dfe, 5)
+```
+
+## 2. Merge the Two Datasets
+
+Python: `pd.merge(dfc, dfe, on='User_ID')` → R: `merge(..., by = "User_ID")`
+
+```{r}
+df <- merge(dfc, dfe, by = "User_ID")
+
+head(df, 5)
+```
+
+## 3. Dataset Overview
+
+Python: `df.shape` → `dim()`, `df.info()` → `str()`
+
+```{r}
+dim(df)
+str(df)
+```
+
+## 4. Drop the User_ID Column
+
+Python: `df.drop(['User_ID'], axis=1)` → R: assign `NULL` to the column
+
+```{r}
+df$User_ID <- NULL
+
+head(df, 3)
+```
+
+## 5. Missing Values
+
+Python: `df.isnull().sum()` → R: `colSums(is.na(df))`
+
+```{r}
+colSums(is.na(df))
+```
+
+## 6. Summary Statistics
+
+Python: `df.describe()` → R: `summary()`
+
+```{r}
+summary(df)
+```
+
+## 7. Distribution and Boxplot of Each Variable
+
+Python: `sns.histplot()` + `sns.boxplot()` → R: `hist()` + `boxplot()`
+
+`par(mfrow = c(7, 2))` makes a grid with 7 rows and 2 columns, like `plt.subplots(7, 2)`.
+
+```{r fig.height=28, fig.width=10}
+columns <- c("Calories", "Age", "Height", "Weight",
+             "Duration", "Heart_Rate", "Body_Temp")
+
+par(mfrow = c(7, 2))
+
+for (column in columns) {
+  # Histogram with a density curve (like kde=True)
+  hist(df[[column]],
+       freq = FALSE,
+       main = paste("Distribution of", column),
+       xlab = column)
+  lines(density(df[[column]]))
+
+  # Horizontal boxplot
+  boxplot(df[[column]],
+          horizontal = TRUE,
+          main = paste("Boxplot of", column),
+          xlab = column)
+}
+
+par(mfrow = c(1, 1))   # reset the plotting area
+```
+
+## 8. Remove Outliers (IQR Method)
+
+Python loops over each column and keeps only the rows inside the IQR limits.
+The same idea in R uses a `for` loop and row filtering with `df[condition, ]`.
+
+```{r}
+cat("Rows before removing outliers:", nrow(df), "\n")
+
+for (column in columns) {
+  q1  <- quantile(df[[column]], 0.25)
+  q3  <- quantile(df[[column]], 0.75)
+  iqr <- q3 - q1
+
+  low  <- q1 - 1.5 * iqr
+  high <- q3 + 1.5 * iqr
+
+  df <- df[df[[column]] >= low & df[[column]] <= high, ]
+}
+
+cat("Rows after removing outliers: ", nrow(df), "\n")
+```
+
+## 9. Log Transformation of Age
+
+Python: `np.log1p()` → R: `log1p()` (built in)
+
+```{r}
+df$Age <- log1p(df$Age)
+```
+
+## 10. Distributions After Cleaning
+
+Same plots as Step 7, to compare before and after.
+
+```{r fig.height=28, fig.width=10}
+par(mfrow = c(7, 2))
+
+for (column in columns) {
+  hist(df[[column]],
+       freq = FALSE,
+       main = paste("Distribution of", column),
+       xlab = column)
+  lines(density(df[[column]]))
+
+  boxplot(df[[column]],
+          horizontal = TRUE,
+          main = paste("Boxplot of", column),
+          xlab = column)
+}
+
+par(mfrow = c(1, 1))
+```
+
+## 11. Encode the Categorical Variable (Gender)
+
+Python: `pd.get_dummies(df, columns=['Gender'], drop_first=True)`
+
+In R, the same result comes from `ifelse()`: `female` becomes the reference group (0)
+and `male` becomes 1. Then the original `Gender` column is removed.
+
+```{r}
+df$Gender_male <- ifelse(df$Gender == "male", 1, 0)
+df$Gender <- NULL
+
+head(df, 3)
+```
+
+## 12. Correlation
+
+Python: `df.corr()` + `sns.heatmap()` → R: `cor()`
+
+```{r}
+round(cor(df), 2)
+```
+
+Optional heatmap (base R, not covered in class yet):
+
+```{r fig.height=6, fig.width=7}
+heatmap(cor(df), Rowv = NA, Colv = NA, symm = TRUE, margins = c(9, 9))
+```
+
+## 13. Separate Features (x) and Target (y)
+
+Python: `df.drop('Calories', axis=1)` and `df['Calories']`
+
+```{r}
+x <- df[, names(df) != "Calories"]
+y <- df$Calories
+```
+
+## 14. Train/Test Split (80% / 20%)
+
+Python: `train_test_split(x, y, test_size=0.2, random_state=42)`
+
+`set.seed(42)` makes the random split reproducible. R's random generator is different from
+Python's, so the exact rows chosen will not match your Python split.
+
+```{r}
+set.seed(42)
+
+n <- nrow(df)
+train_index <- sample(1:n, size = floor(0.8 * n))
+
+xtrain <- x[train_index, ]
+xtest  <- x[-train_index, ]
+ytrain <- y[train_index]
+ytest  <- y[-train_index]
+
+cat("Training rows:", nrow(xtrain), "\n")
+cat("Testing rows: ", nrow(xtest), "\n")
+```
+
+## 15. Standardization
+
+Python: `StandardScaler()` with `fit_transform(xtrain)` and `transform(xtest)`
+
+`scale()` does the standardization (z-score), as in the Standardization lesson.
+The mean and standard deviation come from the **training** data only and are then
+reused on the test data, so no information leaks from test to train.
+
+```{r}
+xtrain_scaled <- scale(xtrain)
+
+xtest_scaled <- scale(xtest,
+                      center = attr(xtrain_scaled, "scaled:center"),
+                      scale  = attr(xtrain_scaled, "scaled:scale"))
+
+head(xtrain_scaled, 3)
+head(xtest_scaled, 3)
+```
+
+The data is now fully preprocessed and ready for modeling.
