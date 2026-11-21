@@ -21,7 +21,7 @@ colSums(is.na(df))
 sum(duplicated(df$User_ID))
 
 # duplicates ignoring User_ID
-same_measurements <- duplicated(df[, -1]) | duplicated(df[, -1], fromLast = TRUE)
+same_measurements <- duplicated(df[, -1]) 
 sum(same_measurements)
 df[same_measurements, ]
 
@@ -111,18 +111,6 @@ for (v in num_vars) {
 }
 sum(any_outlier)
 
-# Figure 2: body temp vs duration
-point_colour <- ifelse(low_temp, "orange", "grey60")
-plot(df$Duration, df$Body_Temp, col = point_colour, pch = 19, cex = 0.5,
-     xlab = "Duration (minutes)", ylab = "Body temperature (C)",
-     main = "Low body-temperature outliers are the first minutes of exercise")
-mean_temp <- tapply(df$Body_Temp, df$Duration, mean)
-lines(as.numeric(names(mean_temp)), mean_temp, col = "red", lwd = 2)
-legend("bottomright", legend = c("flagged by IQR rule", "other rows", "average"),
-       col = c("orange", "grey60", "red"), pch = c(19, 19, NA), lty = c(NA, NA, 1))
-
-# decision no rows removed
-
 
 #Distributions ----
 # Figure 3
@@ -174,47 +162,18 @@ boxplot(Calories ~ Gender, data = df, col = c("pink", "lightblue"),
         main = "Calories vs Gender")
 par(mfrow = c(1, 1))
 
-# calories per minute (only for EDA, not used as input - leakage)
-df$Calories_per_min <- df$Calories / df$Duration
-
-cpm_by_duration <- tapply(df$Calories_per_min, df$Duration, mean)
-round(cpm_by_duration["1"], 1)
-round(cpm_by_duration["30"], 1)
 
 # Figure 5 correlation matrix
 cor_matrix <- cor(df[, num_vars])
 print(round(cor_matrix, 2))
 
-n <- length(num_vars)
-old_mar <- par("mar") # save default margins
-par(mar = c(7, 7, 3, 1))
-image(1:n, 1:n, cor_matrix[, n:1], zlim = c(-1, 1),
-      col = colorRampPalette(c("blue", "white", "red"))(100),
-      axes = FALSE, xlab = "", ylab = "",
-      main = "Correlation matrix (Pearson)")
-axis(1, at = 1:n, labels = num_vars, las = 2)
-axis(2, at = 1:n, labels = rev(num_vars), las = 2)
-for (i in 1:n) {
-  for (j in 1:n) {
-    text(i, n + 1 - j, round(cor_matrix[i, j], 2))
-  }
-}
-par(mar = old_mar) # restore default margins
-
-cor(df$Age, df$Calories)
-cor(df$Age, df$Calories_per_min)
-
+corrplot(cor_matrix, method = "color")      
 
 #Gender, height, weight ----
 df$BMI <- df$Weight / (df$Height / 100)^2
 range(df$BMI)
 
-# Table 6
-table6 <- aggregate(cbind(Calories, Calories_per_min, Height,
-                          Weight, Duration, Age) ~ Gender,
-                    data = df, FUN = mean)
-table6[, -1] <- round(table6[, -1], 2)
-print(table6)
+
 
 # Figure 7
 par(mfrow = c(1, 2))
@@ -247,12 +206,9 @@ head(model_data)
 dim(model_data)
 
 # Age transformation
-use_log_age <- FALSE
 skewness(model_data$Age)
-if (use_log_age == TRUE) {
-  model_data$Age <- log(model_data$Age)
-  skewness(model_data$Age)
-}
+model_data$Age <- log(model_data$Age)
+skewness(model_data$Age)
 
 #Train/test split 80/20 ----
 set.seed(42)
@@ -277,26 +233,20 @@ table8 <- data.frame(
 print(table8)
 
 #Standardization 
-cols_to_scale <- c("Age", "Height", "Weight", "Duration",
-                   "Heart_Rate", "Body_Temp", "BMI")
-
-train_scaled_part <- scale(train[, cols_to_scale])
-train_means <- attr(train_scaled_part, "scaled:center")
-train_sds   <- attr(train_scaled_part, "scaled:scale")
-
-# test uses the train mean and sd
-test_scaled_part <- scale(test[, cols_to_scale],
-                          center = train_means,
-                          scale  = train_sds)
+cols <- c("Age", "Height", "Weight", "Duration",
+          "Heart_Rate", "Body_Temp", "BMI")
 
 train_scaled <- train
-test_scaled  <- test
-train_scaled[, cols_to_scale] <- train_scaled_part
-test_scaled[, cols_to_scale]  <- test_scaled_part
+test_scaled <- test
 
-# check: mean 0, sd 1 on train
-round(colMeans(train_scaled[, cols_to_scale]), 3)
-round(apply(train_scaled[, cols_to_scale], 2, sd), 3)
+train_scaled[cols] <- scale(train[cols])
+
+test_scaled[cols] <- scale(
+  test[cols],
+  center = attr(scale(train[cols]), "scaled:center"),
+  scale  = attr(scale(train[cols]), "scaled:scale")
+)
+
 
 head(train_scaled)
 head(test_scaled)
